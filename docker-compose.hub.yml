@@ -103,8 +103,8 @@ services:
       # Tushare配置（如果.env文件传递有问题，可以在这里显式设置）
       # TUSHARE_TOKEN: "your-tushare-token-here"
       # TUSHARE_ENABLED: "true"
-      # CORS配置
-      CORS_ORIGINS: "http://localhost:3000,http://localhost:8080,http://localhost:5173"
+      # CORS配置（允许所有来源，生产环境应该限制为具体域名）
+      CORS_ORIGINS: "*"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -126,9 +126,12 @@ services:
     container_name: tradingagents-frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "3000:80"
     environment:
       TZ: "Asia/Shanghai"
+      # 注意：VITE_API_BASE_URL 在镜像构建时已固化，这里修改无效
+      # 前端需要通过服务器IP:8000访问后端API
+      # 或者使用 docker-compose.hub.nginx.yml 配置 Nginx 反向代理
       VITE_API_BASE_URL: "http://localhost:8000"
     depends_on:
       - backend
@@ -143,9 +146,9 @@ services:
 
 volumes:
   tradingagents_mongodb_data:
-    external: true
+    driver: local
   tradingagents_redis_data:
-    external: true
+    driver: local
 
 networks:
   tradingagents-network:
