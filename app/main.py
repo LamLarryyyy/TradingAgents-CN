@@ -553,9 +553,116 @@ async def lifespan(app: FastAPI):
                 logger.error(f"❌ 新闻同步失败: {e}", exc_info=True)
 
         # ==================== 港股/美股数据配置 ====================
-        # 港股和美股采用按需获取+缓存模式，不再配置定时同步任务
-        logger.info("🇭🇰 港股数据采用按需获取+缓存模式")
-        logger.info("🇺🇸 美股数据采用按需获取+缓存模式")
+        from app.worker.foreign_sync_service import (
+            run_hk_stock_sync, run_us_stock_sync,
+            run_hk_quotes_sync, run_us_quotes_sync,
+            run_hk_historical_sync, run_us_historical_sync,
+            run_hk_status_check, run_us_status_check
+        )
+        
+        # 港股基礎信息同步任務 (AKShare)
+        scheduler.add_job(
+            run_hk_stock_sync,
+            CronTrigger.from_crontab(settings.HK_STOCK_SYNC_CRON, timezone=settings.TIMEZONE),
+            id="hk_stock_sync",
+            name="港股基礎信息同步（AKShare）"
+        )
+        if not settings.HK_STOCK_SYNC_ENABLED:
+            scheduler.pause_job("hk_stock_sync")
+            logger.info(f"⏸️ 港股基礎信息同步已添加但暫停: {settings.HK_STOCK_SYNC_CRON}")
+        else:
+            logger.info(f"🇭🇰 港股基礎信息同步已配置: {settings.HK_STOCK_SYNC_CRON}")
+        
+        # 港股實時行情同步任務
+        scheduler.add_job(
+            run_hk_quotes_sync,
+            CronTrigger.from_crontab(settings.HK_QUOTES_SYNC_CRON, timezone=settings.TIMEZONE),
+            id="hk_quotes_sync",
+            name="港股實時行情同步（AKShare）"
+        )
+        if not settings.HK_QUOTES_SYNC_ENABLED:
+            scheduler.pause_job("hk_quotes_sync")
+            logger.info(f"⏸️ 港股行情同步已添加但暫停: {settings.HK_QUOTES_SYNC_CRON}")
+        else:
+            logger.info(f"📈 港股行情同步已配置: {settings.HK_QUOTES_SYNC_CRON}")
+        
+        # 港股歷史數據同步任務
+        scheduler.add_job(
+            run_hk_historical_sync,
+            CronTrigger.from_crontab(settings.HK_HISTORICAL_SYNC_CRON, timezone=settings.TIMEZONE),
+            id="hk_historical_sync",
+            name="港股歷史數據同步（AKShare）"
+        )
+        if not settings.HK_HISTORICAL_SYNC_ENABLED:
+            scheduler.pause_job("hk_historical_sync")
+            logger.info(f"⏸️ 港股歷史數據同步已添加但暫停: {settings.HK_HISTORICAL_SYNC_CRON}")
+        else:
+            logger.info(f"📊 港股歷史數據同步已配置: {settings.HK_HISTORICAL_SYNC_CRON}")
+        
+        # 港股狀態檢查任務
+        scheduler.add_job(
+            run_hk_status_check,
+            CronTrigger.from_crontab(settings.HK_STATUS_CHECK_CRON, timezone=settings.TIMEZONE),
+            id="hk_status_check",
+            name="港股數據源狀態檢查"
+        )
+        if not settings.HK_STATUS_CHECK_ENABLED:
+            scheduler.pause_job("hk_status_check")
+            logger.info(f"⏸️ 港股狀態檢查已添加但暫停: {settings.HK_STATUS_CHECK_CRON}")
+        else:
+            logger.info(f"🔍 港股狀態檢查已配置: {settings.HK_STATUS_CHECK_CRON}")
+        
+        # 美股基礎信息同步任務 (Alpha Vantage)
+        scheduler.add_job(
+            run_us_stock_sync,
+            CronTrigger.from_crontab(settings.US_STOCK_SYNC_CRON, timezone=settings.TIMEZONE),
+            id="us_stock_sync",
+            name="美股基礎信息同步（Alpha Vantage）"
+        )
+        if not settings.US_STOCK_SYNC_ENABLED:
+            scheduler.pause_job("us_stock_sync")
+            logger.info(f"⏸️ 美股基礎信息同步已添加但暫停: {settings.US_STOCK_SYNC_CRON}")
+        else:
+            logger.info(f"🇺🇸 美股基礎信息同步已配置: {settings.US_STOCK_SYNC_CRON}")
+        
+        # 美股實時行情同步任務
+        scheduler.add_job(
+            run_us_quotes_sync,
+            CronTrigger.from_crontab(settings.US_QUOTES_SYNC_CRON, timezone=settings.TIMEZONE),
+            id="us_quotes_sync",
+            name="美股實時行情同步（Alpha Vantage）"
+        )
+        if not settings.US_QUOTES_SYNC_ENABLED:
+            scheduler.pause_job("us_quotes_sync")
+            logger.info(f"⏸️ 美股行情同步已添加但暫停: {settings.US_QUOTES_SYNC_CRON}")
+        else:
+            logger.info(f"📈 美股行情同步已配置: {settings.US_QUOTES_SYNC_CRON}")
+        
+        # 美股歷史數據同步任務
+        scheduler.add_job(
+            run_us_historical_sync,
+            CronTrigger.from_crontab(settings.US_HISTORICAL_SYNC_CRON, timezone=settings.TIMEZONE),
+            id="us_historical_sync",
+            name="美股歷史數據同步（Alpha Vantage）"
+        )
+        if not settings.US_HISTORICAL_SYNC_ENABLED:
+            scheduler.pause_job("us_historical_sync")
+            logger.info(f"⏸️ 美股歷史數據同步已添加但暫停: {settings.US_HISTORICAL_SYNC_CRON}")
+        else:
+            logger.info(f"📊 美股歷史數據同步已配置: {settings.US_HISTORICAL_SYNC_CRON}")
+        
+        # 美股狀態檢查任務
+        scheduler.add_job(
+            run_us_status_check,
+            CronTrigger.from_crontab(settings.US_STATUS_CHECK_CRON, timezone=settings.TIMEZONE),
+            id="us_status_check",
+            name="美股數據源狀態檢查"
+        )
+        if not settings.US_STATUS_CHECK_ENABLED:
+            scheduler.pause_job("us_status_check")
+            logger.info(f"⏸️ 美股狀態檢查已添加但暫停: {settings.US_STATUS_CHECK_CRON}")
+        else:
+            logger.info(f"🔍 美股狀態檢查已配置: {settings.US_STATUS_CHECK_CRON}")
 
         scheduler.add_job(
             run_news_sync,

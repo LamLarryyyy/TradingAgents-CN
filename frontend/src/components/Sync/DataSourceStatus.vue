@@ -28,55 +28,98 @@
         </div>
 
         <div v-else-if="dataSources.length > 0" class="sources-list">
-          <div 
-            v-for="source in dataSources" 
-            :key="source.name"
-            class="source-item"
-            :class="{ 'available': source.available, 'unavailable': !source.available }"
-          >
-            <div class="source-header">
-              <div class="source-info">
-                <el-tag 
-                  :type="source.available ? 'success' : 'danger'"
-                  size="small"
-                  class="status-tag"
-                >
-                  {{ source.available ? '可用' : '不可用' }}
-                </el-tag>
-                <span class="source-name">{{ source.name.toUpperCase() }}</span>
-                <el-tag size="small" type="info" class="priority-tag">
-                  优先级: {{ source.priority }}
-                </el-tag>
+          <!-- A股數據源 -->
+          <div class="market-section" v-if="aShareSources.length > 0">
+            <div class="market-title">🇨🇳 A股數據源</div>
+            <div 
+              v-for="source in aShareSources" 
+              :key="source.name"
+              class="source-item"
+              :class="{ 'available': source.available, 'unavailable': !source.available }"
+            >
+              <div class="source-header">
+                <div class="source-info">
+                  <el-tag 
+                    :type="source.available ? 'success' : 'danger'"
+                    size="small"
+                    class="status-tag"
+                  >
+                    {{ source.available ? '可用' : '不可用' }}
+                  </el-tag>
+                  <span class="source-name">{{ source.name.toUpperCase() }}</span>
+                  <el-tag size="small" type="info" class="priority-tag">
+                    优先级: {{ source.priority }}
+                  </el-tag>
+                </div>
+                <div class="source-actions">
+                  <el-button
+                    size="small"
+                    type="primary"
+                    link
+                    @click="testSingleSource(source.name)"
+                    :loading="testingSource === source.name"
+                  >
+                    <el-icon><Operation /></el-icon>
+                    测试
+                  </el-button>
+                </div>
               </div>
-              <div class="source-actions">
-                <el-button
-                  size="small"
-                  type="primary"
-                  link
-                  @click="testSingleSource(source.name)"
-                  :loading="testingSource === source.name"
-                >
-                  <el-icon><Operation /></el-icon>
-                  测试
-                </el-button>
+              <div class="source-description">
+                {{ source.description }}
               </div>
             </div>
-            <div class="source-description">
-              {{ source.description }}
+          </div>
+
+          <!-- 港股數據源 -->
+          <div class="market-section" v-if="hkSources.length > 0">
+            <div class="market-title">🇭🇰 港股數據源</div>
+            <div 
+              v-for="source in hkSources" 
+              :key="source.name"
+              class="source-item"
+              :class="{ 'available': source.available, 'unavailable': !source.available }"
+            >
+              <div class="source-header">
+                <div class="source-info">
+                  <el-tag 
+                    :type="source.available ? 'success' : 'danger'"
+                    size="small"
+                    class="status-tag"
+                  >
+                    {{ source.available ? '可用' : '不可用' }}
+                  </el-tag>
+                  <span class="source-name">{{ source.name.toUpperCase() }}</span>
+                </div>
+              </div>
+              <div class="source-description">
+                {{ source.description }}
+              </div>
             </div>
-            
-            <!-- 测试结果展示 -->
-            <div v-if="testResults[source.name]" class="test-results">
-              <el-divider content-position="left">
-                <span class="divider-text">最后测试结果</span>
-              </el-divider>
-              <div class="test-result-message">
-                <el-alert
-                  :title="testResults[source.name].message"
-                  :type="testResults[source.name].available ? 'success' : 'error'"
-                  :closable="false"
-                  show-icon
-                />
+          </div>
+
+          <!-- 美股數據源 -->
+          <div class="market-section" v-if="usSources.length > 0">
+            <div class="market-title">🇺🇸 美股數據源</div>
+            <div 
+              v-for="source in usSources" 
+              :key="source.name"
+              class="source-item"
+              :class="{ 'available': source.available, 'unavailable': !source.available }"
+            >
+              <div class="source-header">
+                <div class="source-info">
+                  <el-tag 
+                    :type="source.available ? 'success' : 'danger'"
+                    size="small"
+                    class="status-tag"
+                  >
+                    {{ source.available ? '可用' : '不可用' }}
+                  </el-tag>
+                  <span class="source-name">{{ source.name.toUpperCase() }}</span>
+                </div>
+              </div>
+              <div class="source-description">
+                {{ source.description }}
               </div>
             </div>
           </div>
@@ -91,19 +134,35 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Connection, Refresh, Operation } from '@element-plus/icons-vue'
 import { getDataSourcesStatus, testDataSources, type DataSourceStatus, type DataSourceTestResult } from '@/api/sync'
 import { testApiConnection } from '@/api/request'
 
+// 擴展 DataSourceStatus 類型以包含 market 字段
+interface ExtendedDataSourceStatus extends DataSourceStatus {
+  market?: string
+}
+
 // 响应式数据
 const loading = ref(false)
 const refreshing = ref(false)
 const error = ref('')
-const dataSources = ref<DataSourceStatus[]>([])
+const dataSources = ref<ExtendedDataSourceStatus[]>([])
 const testResults = ref<Record<string, DataSourceTestResult>>({})
 const testingSource = ref('')
+
+// 計算屬性：按市場分類數據源
+const aShareSources = computed(() => 
+  dataSources.value.filter(s => !s.market || s.market === 'A股')
+)
+const hkSources = computed(() => 
+  dataSources.value.filter(s => s.market === '港股')
+)
+const usSources = computed(() => 
+  dataSources.value.filter(s => s.market === '美股')
+)
 
 // 获取数据源状态
 const fetchDataSourcesStatus = async () => {
@@ -330,6 +389,18 @@ onMounted(() => {
   .empty-state {
     text-align: center;
     padding: 40px 0;
+  }
+
+  .market-section {
+    margin-bottom: 20px;
+    
+    .market-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--el-border-color-light);
+    }
   }
 }
 </style>

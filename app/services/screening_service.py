@@ -75,7 +75,9 @@ class ScreeningService:
 
     # --- 公共入口 ---
     def run(self, conditions: Dict[str, Any], params: ScreeningParams) -> Dict[str, Any]:
-        symbols = self._get_universe()
+        # 根據市場類型獲取股票列表
+        market = params.market if params.market else "CN"
+        symbols = self._get_universe(market)
         # 为控制时长，先限制样本规模（后续用批量/缓存优化）
         symbols = symbols[:120]
 
@@ -101,8 +103,30 @@ class ScreeningService:
 
                 # 如需要基础行情/技术指标才取K线
                 if need_base:
-                    manager = get_data_source_manager()
-                    df = manager.get_stock_dataframe(code, start_s, end_s)
+                    df = None
+                    if market == "CN":
+                        # A股使用統一數據源管理器
+                        manager = get_data_source_manager()
+                        df = manager.get_stock_dataframe(code, start_s, end_s)
+                    elif market == "HK":
+                        # 港股使用 AKShare
+                        try:
+                            from app.services.data_sources.hk_akshare_adapter import HKAKShareAdapter
+                            adapter = HKAKShareAdapter()
+                            df = adapter.get_daily_data(code, start_s, end_s)
+                        except Exception as e:
+                            logger.warning(f"獲取港股 {code} 數據失敗: {e}")
+                            continue
+                    elif market == "US":
+                        # 美股使用 Alpha Vantage
+                        try:
+                            from app.services.data_sources.us_alphavantage_adapter import USAlphaVantageAdapter
+                            adapter = USAlphaVantageAdapter()
+                            df = adapter.get_daily_data(code, start_s, end_s, outputsize="full")
+                        except Exception as e:
+                            logger.warning(f"獲取美股 {code} 數據失敗: {e}")
+                            continue
+                    
                     if df is None or df.empty:
                         continue
                     # 统一列为小写
@@ -203,39 +227,65 @@ class ScreeningService:
         """Delegate numeric coercion to utils."""
         return _safe_float_util(v)
 
-    def _get_universe(self) -> List[str]:
-        """获取A股代码集合：从 MongoDB stock_basic_info 集合获取所有A股股票代码"""
+    def _get_universe(self, market: str = "CN") -> List[str]:
+        """获取股票代码集合：从 MongoDB stock_basic_info 集合获取股票代码
+        
+        Args:
+            market: 市場類型 (CN=A股, HK=港股, US=美股)
+        """
         try:
             from app.core.database import get_mongo_db
 
             db = get_mongo_db()
             collection = db.stock_basic_info
 
-            # 查询所有A股股票代码（兼容不同的数据结构）
-            cursor = collection.find(
-                {
+            # 根據市場類型構建查詢條件
+            if market == "CN":
+                query = {
                     "$or": [
-                        {"market_info.market": "CN"},  # 新数据结构
-                        {"category": "stock_cn"},      # 旧数据结构
-                        {"market": {"$in": ["主板", "创业板", "科创板", "北交所"]}}  # 按市场类型
+                        {"market_info.market": "CN"},
+                        {"category": "stock_cn"},
+                        {"market": {"$in": ["主板", "创业板", "科创板", "北交所"]}}
                     ]
-                },
-                {"code": 1, "_id": 0}
-            )
+                }
+                fallback_codes = ["000001", "000002", "000858", "600519", "600036", "601318", "300750"]
+            elif market == "HK":
+                query = {
+                    "$or": [
+                        {"market_info.market": "HK"},
+                        {"market": "HK"},
+                        {"category": "stock_hk"}
+                    ]
+                }
+                fallback_codes = ["00700", "09988", "01810", "02318", "00005", "00388", "03690"]
+            elif market == "US":
+                query = {
+                    "$or": [
+                        {"market_info.market": "US"},
+                        {"market": "US"},
+                        {"category": "stock_us"}
+                    ]
+                }
+                fallback_codes = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META"]
+            else:
+                logger.warning(f"⚠️ 不支持的市場類型: {market}，使用 A 股")
+                return self._get_universe("CN")
 
-            # 同步获取所有股票代码
+            cursor = collection.find(query, {"code": 1, "_id": 0})
             codes = [doc.get("code") for doc in cursor if doc.get("code")]
 
             if codes:
-                logger.info(f"📊 从 MongoDB 获取到 {len(codes)} 只A股股票")
+                logger.info(f"📊 从 MongoDB 获取到 {len(codes)} 只{market}股票")
                 return codes
             else:
-                # 如果数据库为空，返回常见股票代码作为兜底
-                logger.warning("⚠️ MongoDB 中未找到股票数据，使用兜底股票列表")
-                return ["000001", "000002", "000858", "600519", "600036", "601318", "300750"]
+                logger.warning(f"⚠️ MongoDB 中未找到{market}股票数据，使用兜底股票列表")
+                return fallback_codes
 
         except Exception as e:
-            logger.error(f"❌ 从 MongoDB 获取股票列表失败: {e}")
-            # 异常时返回常见股票代码作为兜底
+            logger.error(f"❌ 从 MongoDB 获取{market}股票列表失败: {e}")
+            if market == "HK":
+                return ["00700", "09988", "01810", "02318", "00005", "00388", "03690"]
+            elif market == "US":
+                return ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META"]
             return ["000001", "000002", "000858", "600519", "600036", "601318", "300750"]
 

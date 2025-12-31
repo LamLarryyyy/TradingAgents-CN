@@ -49,6 +49,11 @@
             <SyncControl @sync-completed="handleSyncCompleted" />
           </div>
           
+          <!-- 港股/美股同步控制 -->
+          <div class="content-section">
+            <ForeignSyncControl />
+          </div>
+          
           <!-- 同步历史 -->
           <div class="content-section">
             <SyncHistory />
@@ -132,6 +137,7 @@ import DataSourceStatus from '@/components/Sync/DataSourceStatus.vue'
 import SyncControl from '@/components/Sync/SyncControl.vue'
 import SyncRecommendations from '@/components/Sync/SyncRecommendations.vue'
 import SyncHistory from '@/components/Sync/SyncHistory.vue'
+import ForeignSyncControl from '@/components/Sync/ForeignSyncControl.vue'
 
 // 响应式数据
 const testing = ref(false)

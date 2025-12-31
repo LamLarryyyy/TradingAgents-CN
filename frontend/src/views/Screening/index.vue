@@ -43,8 +43,10 @@
           <!-- 基础信息 -->
           <el-col :span="8">
             <el-form-item label="市场类型">
-              <el-select v-model="filters.market" placeholder="选择市场" disabled>
-                <el-option label="A股" value="A股" />
+              <el-select v-model="filters.market" placeholder="选择市场">
+                <el-option label="A股" value="CN" />
+                <el-option label="港股" value="HK" />
+                <el-option label="美股" value="US" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -53,10 +55,11 @@
             <el-form-item label="行业分类">
               <el-select
                 v-model="filters.industry"
-                placeholder="选择行业"
+                :placeholder="industryOptions.length > 0 ? '选择行业' : (filters.market === 'CN' ? '加载中...' : '暂无行业数据')"
                 multiple
                 collapse-tags
                 collapse-tags-tooltip
+                :disabled="industryOptions.length === 0"
               >
                 <el-option
                   v-for="industry in industryOptions"
@@ -358,7 +361,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Collection, TrendCharts, Download, Star, Setting, Connection, Warning } from '@element-plus/icons-vue'
@@ -395,7 +398,7 @@ const fieldsLoading = ref(false)
 
 // 筛选条件
 const filters = reactive({
-  market: 'A股',
+  market: 'CN',
   industry: [] as string[],
   marketCapRange: '',
   peRatio: { min: null, max: null },
@@ -486,7 +489,7 @@ const performScreening = async () => {
     // 明确指定：不加任何技术指标相关条件
 
     const payload = {
-      market: 'CN',
+      market: filters.market,
       date: undefined,
       adj: 'qfq',
       conditions: { logic: 'AND', children },
@@ -718,24 +721,17 @@ const loadFieldConfig = async () => {
   }
 }
 
-// 加载行业列表
-const loadIndustries = async () => {
+// 加载行业列表（根據市場）
+const loadIndustries = async (market: string = 'CN') => {
   try {
-    const response = await screeningApi.getIndustries()
+    const response = await screeningApi.getIndustries(market)
     const data = response.data || response
     industryOptions.value = data.industries || []
-    console.log('行业列表加载成功:', industryOptions.value.length, '个行业')
+    console.log(`行业列表加载成功 (${market}):`, industryOptions.value.length, '个行业')
   } catch (error) {
     console.error('加载行业列表失败:', error)
-    ElMessage.error('加载行业列表失败')
-    // 如果加载失败，使用默认的行业列表
-    industryOptions.value = [
-      { label: '银行', value: '银行' },
-      { label: '证券', value: '证券' },
-      { label: '保险', value: '保险' },
-      { label: '房地产', value: '房地产' },
-      { label: '医药生物', value: '医药生物' }
-    ]
+    // 如果加载失败，清空行业列表
+    industryOptions.value = []
   }
 }
 
@@ -768,11 +764,42 @@ const loadCurrentDataSource = async () => {
   }
 }
 
+// 監聽市場變化，更新數據源和行業列表
+watch(() => filters.market, async (newMarket) => {
+  console.log('市場切換:', newMarket)
+  // 清空已選行業
+  filters.industry = []
+  // 重新加載行業列表
+  await loadIndustries(newMarket)
+  // 更新數據源顯示
+  updateDataSourceDisplay(newMarket)
+})
+
+// 根據市場更新數據源顯示
+const updateDataSourceDisplay = (market: string) => {
+  if (market === 'HK') {
+    currentDataSource.value = {
+      name: 'AKShare (港股)',
+      priority: 2,
+      description: '港股數據源'
+    }
+  } else if (market === 'US') {
+    currentDataSource.value = {
+      name: 'Alpha Vantage (美股)',
+      priority: 3,
+      description: '美股數據源'
+    }
+  } else {
+    // A股：重新獲取當前數據源
+    loadCurrentDataSource()
+  }
+}
+
 // 生命周期
 onMounted(() => {
   // 加载字段配置和行业列表
   loadFieldConfig()
-  loadIndustries()
+  loadIndustries(filters.market)
   // 初始化自选状态
   loadFavorites()
   // 加载当前数据源

@@ -2,7 +2,7 @@ import { ApiClient } from './request'
 
 export interface ScreeningOrderBy { field: string; direction: 'asc' | 'desc' }
 export interface ScreeningRunReq {
-  market?: 'CN'
+  market?: 'CN' | 'HK' | 'US' | string
   date?: string | null
   adj?: 'qfq' | 'hfq' | 'none'
   conditions: any
@@ -59,6 +59,6 @@ export const screeningApi = {
   run: (payload: ScreeningRunReq, options?: { timeout?: number }) =>
     ApiClient.post<ScreeningRunResp>('/api/screening/run', payload, { timeout: options?.timeout ?? 120000 }),
   getFields: () => ApiClient.get<FieldConfigResponse>('/api/screening/fields'),
-  getIndustries: () => ApiClient.get<IndustriesResponse>('/api/screening/industries')
+  getIndustries: (market: string = 'CN') => ApiClient.get<IndustriesResponse>(`/api/screening/industries?market=${market}`)
 }
 

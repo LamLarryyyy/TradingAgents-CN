@@ -260,15 +260,35 @@ class Settings(BaseSettings):
 
     # ==================== 港股数据配置 ====================
 
-    # 港股数据源配置（按需获取+缓存模式）
+    # 港股数据源配置
     HK_DATA_CACHE_HOURS: int = Field(default=24, ge=1, le=168, description="港股数据缓存时长（小时）")
-    HK_DEFAULT_DATA_SOURCE: str = Field(default="yfinance", description="港股默认数据源（yfinance/akshare）")
+    HK_DEFAULT_DATA_SOURCE: str = Field(default="akshare", description="港股默认数据源（akshare）")
+    
+    # 港股定時同步配置
+    HK_STOCK_SYNC_ENABLED: bool = Field(default=True, description="啟用港股數據同步")
+    HK_STOCK_SYNC_CRON: str = Field(default="0 5 * * *", description="港股基礎信息同步CRON")  # 每日凌晨5點
+    HK_QUOTES_SYNC_ENABLED: bool = Field(default=True, description="啟用港股行情同步")
+    HK_QUOTES_SYNC_CRON: str = Field(default="*/30 9-16 * * 1-5", description="港股行情同步CRON")  # 交易時段每30分鐘
+    HK_HISTORICAL_SYNC_ENABLED: bool = Field(default=True, description="啟用港股歷史數據同步")
+    HK_HISTORICAL_SYNC_CRON: str = Field(default="0 18 * * 1-5", description="港股歷史數據同步CRON")  # 每日18點
+    HK_STATUS_CHECK_ENABLED: bool = Field(default=True, description="啟用港股狀態檢查")
+    HK_STATUS_CHECK_CRON: str = Field(default="0 */6 * * *", description="港股狀態檢查CRON")  # 每6小時
 
     # ==================== 美股数据配置 ====================
 
-    # 美股数据源配置（按需获取+缓存模式）
+    # 美股数据源配置
     US_DATA_CACHE_HOURS: int = Field(default=24, ge=1, le=168, description="美股数据缓存时长（小时）")
-    US_DEFAULT_DATA_SOURCE: str = Field(default="yfinance", description="美股默认数据源（yfinance/finnhub）")
+    US_DEFAULT_DATA_SOURCE: str = Field(default="alphavantage", description="美股默认数据源（alphavantage）")
+    
+    # 美股定時同步配置
+    US_STOCK_SYNC_ENABLED: bool = Field(default=True, description="啟用美股數據同步")
+    US_STOCK_SYNC_CRON: str = Field(default="0 6 * * *", description="美股基礎信息同步CRON")  # 每日凌晨6點
+    US_QUOTES_SYNC_ENABLED: bool = Field(default=True, description="啟用美股行情同步")
+    US_QUOTES_SYNC_CRON: str = Field(default="*/30 21,22,23,0,1,2,3,4 * * 1-5", description="美股行情同步CRON")  # 美股交易時段 21:30-04:00
+    US_HISTORICAL_SYNC_ENABLED: bool = Field(default=True, description="啟用美股歷史數據同步")
+    US_HISTORICAL_SYNC_CRON: str = Field(default="0 7 * * 1-5", description="美股歷史數據同步CRON")  # 每日7點
+    US_STATUS_CHECK_ENABLED: bool = Field(default=True, description="啟用美股狀態檢查")
+    US_STATUS_CHECK_CRON: str = Field(default="0 */6 * * *", description="美股狀態檢查CRON")  # 每6小時
 
     # ===== 新闻数据同步服务配置 =====
     NEWS_SYNC_ENABLED: bool = Field(default=True)

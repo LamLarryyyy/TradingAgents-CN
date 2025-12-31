@@ -39,17 +39,18 @@ class DataSourceStatus(BaseModel):
 
 @router.get("/sources/status")
 async def get_data_sources_status():
-    """获取所有数据源的状态"""
+    """获取所有数据源的状态（包括A股、港股、美股）"""
     try:
         manager = DataSourceManager()
         available_adapters = manager.get_available_adapters()
         all_adapters = manager.adapters
 
         status_list = []
+        
+        # A股數據源
         for adapter in all_adapters:
             is_available = adapter in available_adapters
 
-            # 根据数据源类型提供描述
             descriptions = {
                 "tushare": "专业金融数据API，提供高质量的A股数据和财务指标",
                 "akshare": "开源金融数据库，提供基础的股票信息",
@@ -60,10 +61,10 @@ async def get_data_sources_status():
                 "name": adapter.name,
                 "priority": adapter.priority,
                 "available": is_available,
-                "description": descriptions.get(adapter.name, f"{adapter.name}数据源")
+                "description": descriptions.get(adapter.name, f"{adapter.name}数据源"),
+                "market": "A股"
             }
 
-            # 添加 Token 来源信息（仅 Tushare）
             if adapter.name == "tushare" and is_available and hasattr(adapter, 'get_token_source'):
                 token_source = adapter.get_token_source()
                 if token_source:
@@ -74,6 +75,50 @@ async def get_data_sources_status():
                         status_item["description"] += " (Token来源: .env)"
 
             status_list.append(status_item)
+
+        # 港股數據源 (AKShare)
+        try:
+            from app.services.data_sources.hk_akshare_adapter import HKAKShareAdapter
+            hk_adapter = HKAKShareAdapter()
+            hk_available = hk_adapter.is_available()
+            status_list.append({
+                "name": "akshare_hk",
+                "priority": 2,
+                "available": hk_available,
+                "description": "港股數據源 (AKShare)，提供港股基礎信息和行情",
+                "market": "港股"
+            })
+        except Exception as e:
+            logger.warning(f"Failed to check HK AKShare adapter: {e}")
+            status_list.append({
+                "name": "akshare_hk",
+                "priority": 2,
+                "available": False,
+                "description": f"港股數據源 (AKShare) - 錯誤: {str(e)[:50]}",
+                "market": "港股"
+            })
+
+        # 美股數據源 (Alpha Vantage)
+        try:
+            from app.services.data_sources.us_alphavantage_adapter import USAlphaVantageAdapter
+            us_adapter = USAlphaVantageAdapter()
+            us_available = us_adapter.is_available()
+            status_list.append({
+                "name": "alphavantage_us",
+                "priority": 3,
+                "available": us_available,
+                "description": "美股數據源 (Alpha Vantage)，提供美股基礎信息和行情",
+                "market": "美股"
+            })
+        except Exception as e:
+            logger.warning(f"Failed to check US Alpha Vantage adapter: {e}")
+            status_list.append({
+                "name": "alphavantage_us",
+                "priority": 3,
+                "available": False,
+                "description": f"美股數據源 (Alpha Vantage) - 錯誤: {str(e)[:50]}",
+                "market": "美股"
+            })
 
         return SyncResponse(
             success=True,
@@ -405,13 +450,21 @@ async def get_sync_history(
     page_size: int = Query(10, ge=1, le=50, description="每页大小"),
     status: Optional[str] = Query(None, description="状态筛选")
 ):
-    """获取同步历史记录"""
+    """获取同步历史记录（包括A股、港股、美股）"""
     try:
         from app.core.database import get_mongo_db
         db = get_mongo_db()
 
-        # 构建查询条件
-        query = {"job": "stock_basics_multi_source"}
+        # 构建查询条件 - 包含所有市場的同步記錄
+        query = {
+            "job": {
+                "$in": [
+                    "stock_basics_multi_source",  # A股
+                    "stock_basics_hk",             # 港股
+                    "stock_basics_us"              # 美股
+                ]
+            }
+        }
         if status:
             query["status"] = status
 
@@ -443,6 +496,108 @@ async def get_sync_history(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get sync history: {str(e)}")
+
+
+@router.post("/hk/sync")
+async def sync_hk_stocks(request: SyncRequest = None):
+    """同步港股數據 (使用 AKShare)"""
+    try:
+        from app.services.foreign_stock_sync_service import get_foreign_stock_sync_service
+        
+        service = get_foreign_stock_sync_service()
+        force = request.force if request else False
+        
+        result = await service.sync_hk_stocks(force=force)
+        
+        return SyncResponse(
+            success=result.get("status") == "completed",
+            message=result.get("message", ""),
+            data=result
+        )
+    except Exception as e:
+        logger.error(f"Failed to sync HK stocks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to sync HK stocks: {str(e)}")
+
+
+@router.get("/hk/status")
+async def get_hk_sync_status():
+    """獲取港股同步狀態"""
+    try:
+        from app.services.foreign_stock_sync_service import get_foreign_stock_sync_service
+        
+        service = get_foreign_stock_sync_service()
+        status = await service.get_status("HK")
+        
+        return SyncResponse(
+            success=True,
+            message="HK sync status retrieved",
+            data=status
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get HK sync status: {str(e)}")
+
+
+@router.post("/us/sync")
+async def sync_us_stocks(request: SyncRequest = None):
+    """同步美股數據 (使用 Alpha Vantage)"""
+    try:
+        from app.services.foreign_stock_sync_service import get_foreign_stock_sync_service
+        
+        service = get_foreign_stock_sync_service()
+        force = request.force if request else False
+        
+        result = await service.sync_us_stocks(force=force)
+        
+        return SyncResponse(
+            success=result.get("status") == "completed",
+            message=result.get("message", ""),
+            data=result
+        )
+    except Exception as e:
+        logger.error(f"Failed to sync US stocks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to sync US stocks: {str(e)}")
+
+
+@router.get("/us/status")
+async def get_us_sync_status():
+    """獲取美股同步狀態"""
+    try:
+        from app.services.foreign_stock_sync_service import get_foreign_stock_sync_service
+        
+        service = get_foreign_stock_sync_service()
+        status = await service.get_status("US")
+        
+        return SyncResponse(
+            success=True,
+            message="US sync status retrieved",
+            data=status
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get US sync status: {str(e)}")
+
+
+@router.post("/foreign/sync")
+async def sync_all_foreign_stocks(request: SyncRequest = None):
+    """同步所有外國股票 (港股 + 美股)"""
+    try:
+        from app.services.foreign_stock_sync_service import get_foreign_stock_sync_service
+        
+        service = get_foreign_stock_sync_service()
+        force = request.force if request else False
+        
+        result = await service.sync_all(force=force)
+        
+        hk_success = result.get("hk", {}).get("status") == "completed"
+        us_success = result.get("us", {}).get("status") == "completed"
+        
+        return SyncResponse(
+            success=hk_success and us_success,
+            message=f"HK: {result.get('hk', {}).get('message', 'N/A')}, US: {result.get('us', {}).get('message', 'N/A')}",
+            data=result
+        )
+    except Exception as e:
+        logger.error(f"Failed to sync foreign stocks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to sync foreign stocks: {str(e)}")
 
 
 @router.delete("/cache")

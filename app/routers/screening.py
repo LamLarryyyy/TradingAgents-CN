@@ -273,11 +273,17 @@ async def validate_conditions(conditions: List[ScreeningCondition], user: dict =
 
 
 @router.get("/industries")
-async def get_industries(user: dict = Depends(get_current_user)):
+async def get_industries(
+    market: str = "CN",
+    user: dict = Depends(get_current_user)
+):
     """
     获取数据库中所有可用的行业列表
-    根据系统配置的数据源优先级，从优先级最高的数据源获取行业分类数据
+    根据市場類型和系统配置的数据源优先级，从优先级最高的数据源获取行业分类数据
     返回按股票数量排序的行业列表
+    
+    Args:
+        market: 市場類型 (CN=A股, HK=港股, US=美股)
     """
     try:
         from app.core.database import get_mongo_db
@@ -286,30 +292,36 @@ async def get_industries(user: dict = Depends(get_current_user)):
         db = get_mongo_db()
         collection = db["stock_basic_info"]
 
-        # 🔥 获取数据源优先级配置（使用统一配置管理器的异步方法）
-        config = UnifiedConfigManager()
-        data_source_configs = await config.get_data_source_configs_async()
+        # 根據市場類型決定數據源和查詢條件
+        if market == "HK":
+            preferred_source = "akshare_hk"
+            market_filter = {"market_info.market": "HK"}
+        elif market == "US":
+            preferred_source = "alphavantage"
+            market_filter = {"market_info.market": "US"}
+        else:
+            # A股：使用配置的數據源優先級
+            config = UnifiedConfigManager()
+            data_source_configs = await config.get_data_source_configs_async()
 
-        # 提取启用的数据源，按优先级排序（已排序）
-        enabled_sources = [
-            ds.type.lower() for ds in data_source_configs
-            if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
-        ]
+            enabled_sources = [
+                ds.type.lower() for ds in data_source_configs
+                if ds.enabled and ds.type.lower() in ['tushare', 'akshare', 'baostock']
+            ]
 
-        if not enabled_sources:
-            # 如果没有配置，使用默认顺序
-            enabled_sources = ['tushare', 'akshare', 'baostock']
+            if not enabled_sources:
+                enabled_sources = ['tushare', 'akshare', 'baostock']
 
-        logger.info(f"[get_industries] 数据源优先级: {enabled_sources}")
+            preferred_source = enabled_sources[0] if enabled_sources else 'tushare'
+            market_filter = {"source": preferred_source}
 
-        # 🔥 按优先级查询：优先使用优先级最高的数据源
-        preferred_source = enabled_sources[0] if enabled_sources else 'tushare'
+        logger.info(f"[get_industries] 市場: {market}, 數據源: {preferred_source}")
 
-        # 聚合查询：按行业分组并统计股票数量（只查询指定数据源）
+        # 聚合查询：按行业分组并统计股票数量
         pipeline = [
             {
                 "$match": {
-                    "source": preferred_source,  # 🔥 只查询优先级最高的数据源
+                    **market_filter,
                     "industry": {"$ne": None, "$ne": ""}  # 过滤空行业
                 }
             },

@@ -1398,36 +1398,135 @@ class ConfigService:
                     }
 
             elif ds_type == "yahoo_finance":
-                # Yahoo Finance 测试
-                if not ds_config.endpoint:
-                    ds_config.endpoint = "https://query1.finance.yahoo.com"
-
+                # Yahoo Finance 测试 - 先尝试 RapidAPI，失败后回退到免费 API
                 try:
-                    url = f"{ds_config.endpoint}/v8/finance/chart/AAPL"
-                    params = {"interval": "1d", "range": "1d"}
-                    response = requests.get(url, params=params, timeout=10)
-
-                    if response.status_code == 200:
-                        data = response.json()
-                        if "chart" in data and "result" in data["chart"]:
-                            response_time = time.time() - start_time
+                    import subprocess
+                    import json as json_lib
+                    from urllib.parse import urlparse
+                    
+                    rapidapi_key = ds_config.config_params.get("rapidapi_key") or api_key
+                    rapidapi_host = ds_config.config_params.get("rapidapi_host")
+                    
+                    # 如果 config_params 没有 host，尝试从 endpoint 提取
+                    if not rapidapi_host and ds_config.endpoint and "rapidapi.com" in ds_config.endpoint:
+                        parsed = urlparse(ds_config.endpoint)
+                        rapidapi_host = parsed.netloc
+                    
+                    logger.info(f"🔍 [Yahoo Finance] rapidapi_key: {rapidapi_key[:10] if rapidapi_key else 'None'}...")
+                    logger.info(f"🔍 [Yahoo Finance] rapidapi_host: {rapidapi_host}")
+                    
+                    rapidapi_success = False
+                    rapidapi_error = None
+                    
+                    # 第一步：尝试 RapidAPI
+                    if rapidapi_key and rapidapi_host:
+                        logger.info(f"🔍 [Yahoo Finance] 尝试 RapidAPI...")
+                        
+                        endpoint = ds_config.endpoint or f"https://{rapidapi_host}"
+                        
+                        # 根据不同的 RapidAPI host 使用不同的测试端点
+                        if "yahoo-finance15" in rapidapi_host:
+                            url = f"{endpoint}/api/v1/markets/quote"
+                            params = {"ticker": "AAPL", "type": "STOCKS"}
+                        elif "apidojo" in rapidapi_host or "yahoo-finance-v1" in rapidapi_host:
+                            url = f"{endpoint}/stock/v2/get-timeseries"
+                            params = {"symbol": "AAPL", "region": "US"}
+                        else:
+                            url = f"{endpoint}/quote"
+                            params = {"symbols": "AAPL"}
+                        
+                        headers = {
+                            "X-RapidAPI-Key": rapidapi_key,
+                            "X-RapidAPI-Host": rapidapi_host
+                        }
+                        
+                        # 先尝试 requests
+                        try:
+                            response = requests.get(url, headers=headers, params=params, timeout=10)
+                            if response.status_code == 200:
+                                data = response.json()
+                                if "timeseries" in data or "body" in data or "quoteResponse" in data:
+                                    rapidapi_success = True
+                                    return {
+                                        "success": True,
+                                        "message": "成功连接到 Yahoo Finance 数据源 (RapidAPI)",
+                                        "response_time": time.time() - start_time,
+                                        "details": {
+                                            "type": ds_type,
+                                            "endpoint": endpoint,
+                                            "test_result": "获取 AAPL 数据成功",
+                                            "api_type": "RapidAPI"
+                                        }
+                                    }
+                            rapidapi_error = f"HTTP {response.status_code}"
+                        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+                            logger.warning(f"⚠️ RapidAPI requests 失败，尝试 curl: {e}")
+                            # 尝试 curl
+                            query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+                            full_url = f"{url}?{query_string}"
+                            try:
+                                curl_result = subprocess.run([
+                                    'curl', '-s', '--request', 'GET', full_url,
+                                    '--header', f'x-rapidapi-host: {rapidapi_host}',
+                                    '--header', f'x-rapidapi-key: {rapidapi_key}'
+                                ], capture_output=True, text=True, timeout=15)
+                                
+                                if curl_result.returncode == 0 and curl_result.stdout:
+                                    data = json_lib.loads(curl_result.stdout)
+                                    if "timeseries" in data or "body" in data or "quoteResponse" in data:
+                                        rapidapi_success = True
+                                        return {
+                                            "success": True,
+                                            "message": "成功连接到 Yahoo Finance 数据源 (RapidAPI via curl)",
+                                            "response_time": time.time() - start_time,
+                                            "details": {
+                                                "type": ds_type,
+                                                "endpoint": endpoint,
+                                                "test_result": "获取 AAPL 数据成功",
+                                                "api_type": "RapidAPI (curl)"
+                                            }
+                                        }
+                            except Exception as curl_err:
+                                rapidapi_error = str(curl_err)
+                            rapidapi_error = str(e)
+                    
+                    # 第二步：RapidAPI 失败或未配置，尝试免费 API
+                    if not rapidapi_success:
+                        logger.info(f"🔍 [Yahoo Finance] RapidAPI 失败或未配置 ({rapidapi_error})，尝试免费 API...")
+                        
+                        free_url = "https://query1.finance.yahoo.com/v8/finance/chart/AAPL"
+                        free_params = {"interval": "1d", "range": "1d"}
+                        
+                        try:
+                            response = requests.get(free_url, params=free_params, timeout=10)
+                            if response.status_code == 200:
+                                data = response.json()
+                                if "chart" in data and "result" in data["chart"]:
+                                    return {
+                                        "success": True,
+                                        "message": "成功连接到 Yahoo Finance 数据源 (免费 API)" + (f" [RapidAPI 失败: {rapidapi_error}]" if rapidapi_error else ""),
+                                        "response_time": time.time() - start_time,
+                                        "details": {
+                                            "type": ds_type,
+                                            "endpoint": "https://query1.finance.yahoo.com",
+                                            "test_result": "获取 AAPL 数据成功",
+                                            "api_type": "Free API"
+                                        }
+                                    }
                             return {
-                                "success": True,
-                                "message": f"成功连接到 Yahoo Finance 数据源",
-                                "response_time": response_time,
-                                "details": {
-                                    "type": ds_type,
-                                    "endpoint": ds_config.endpoint,
-                                    "test_result": "获取 AAPL 数据成功"
-                                }
+                                "success": False,
+                                "message": f"Yahoo Finance 免费 API 返回错误: HTTP {response.status_code}",
+                                "response_time": time.time() - start_time,
+                                "details": {"response_text": response.text[:500] if response.text else None}
                             }
-
-                    return {
-                        "success": False,
-                        "message": f"Yahoo Finance API 返回错误: HTTP {response.status_code}",
-                        "response_time": time.time() - start_time,
-                        "details": None
-                    }
+                        except Exception as free_err:
+                            return {
+                                "success": False,
+                                "message": f"Yahoo Finance API 全部失败 - RapidAPI: {rapidapi_error}, 免费API: {str(free_err)}",
+                                "response_time": time.time() - start_time,
+                                "details": None
+                            }
+                            
                 except Exception as e:
                     return {
                         "success": False,
